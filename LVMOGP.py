@@ -1,12 +1,3 @@
-########################################
-# 08/01/2025
-
-# First version, (1) predict involves a for loop. (2) The model only support one variable. (3) focus on whitening.
-# TODO
-# In the future, parallel for multiple variables, each with their own model params, and no for loop in predict function.
-# and think about one more parallelization? Multiple datasets, each dataset has multiple variables, each variable-data
-# has multiple inputs and outputs ...
-########################################
 import copy
 from typing import Union, Tuple, Any, Dict
 import torch
@@ -24,9 +15,9 @@ class Prior_H(nn.Module):
     """p(H), fully factorized prior"""
     def __init__(self, mean_pH: Tensor, cov_pH: Union[Tensor]):
         super(Prior_H, self).__init__()
-        self.register_buffer("mean_pH", mean_pH)  # [(Q),P,D_h]
+        self.register_buffer("mean_pH", mean_pH)  
         assert torch.all(cov_pH > 0.), "Prior H cov must be positive."
-        self.register_buffer("cov_pH", cov_pH)    # [(Q),P,D_h]
+        self.register_buffer("cov_pH", cov_pH)    
 
 
 class Variational_H(nn.Module):
@@ -49,10 +40,10 @@ class Variational_H(nn.Module):
 
     def sample(self, ids):
         if self.mean_field:
-            _mean = self.mean_qH[:, ids, :]  # [Q, len(ids), D_h]
+            _mean = self.mean_qH[:, ids, :]  
             _std = torch.sqrt(self.cov_qH[:, ids, :])
             _eps = torch.randn_like(_mean)
-            return _mean + _eps * _std  # [Q, len(ids), D_h]
+            return _mean + _eps * _std  
         else:
             raise NotImplementedError
 
@@ -63,18 +54,18 @@ class Variational_inducing_dist(nn.Module):
         self.register_parameter("mean_qU", nn.Parameter(torch.zeros((int(M_H * M_X))), requires_grad=True))
         self.register_parameter("chol_cov_qU_H",
                                 nn.Parameter(torch.eye(int(M_H)),
-                                             requires_grad=True))  # [M_H, M_H]
+                                             requires_grad=True))  
         self.register_parameter("chol_cov_qU_X",
                                 nn.Parameter(torch.eye(int(M_X)),
-                                             requires_grad=True))  # [M_X, M_X]
+                                             requires_grad=True))  
 
     @property
     def cov_qU_H(self):
-        return self.chol_cov_qU_H @ self.chol_cov_qU_H.mT  # [M_H, M_H]
+        return self.chol_cov_qU_H @ self.chol_cov_qU_H.mT  
 
     @property
     def cov_qU_X(self):
-        return self.chol_cov_qU_X @ self.chol_cov_qU_X.mT  # [M_X, M_X]
+        return self.chol_cov_qU_X @ self.chol_cov_qU_X.mT  
 
     @property
     def cov_qU(self):
@@ -82,7 +73,7 @@ class Variational_inducing_dist(nn.Module):
 
 
 class Inducing_points(nn.Module):
-    """Z_H or Z_X, inducing points/locations"""  # TODO: simplify inputs!
+    """Z_H or Z_X, inducing points/locations"""  
     def __init__(self, IP_name: str, Q: int, num_inducing_points: int, num_dim: int, IP_init: Tensor=None, IP_joint=True, init: str="random_normal"):
         super(Inducing_points, self).__init__()
         self.IP_name = IP_name
@@ -92,7 +83,7 @@ class Inducing_points(nn.Module):
             IPs = IP_init
         else:
             if init == "random_normal":
-                IPs = torch.randn((Q, num_inducing_points, num_dim))  # [Q, M_H/M_X, D_H/D_X]
+                IPs = torch.randn((Q, num_inducing_points, num_dim))  
             else:
                 raise NotImplementedError
 
@@ -135,7 +126,6 @@ class LVMOGP(nn.Module):
         self.whitening = whitening
         self.jitter = jitter
 
-        # self._check_argument(self.Q, self.num_outputs, pH, qH, qU, zH, zX)
 
     @property
     def pU(self):
@@ -174,21 +164,21 @@ class LVMOGP(nn.Module):
         cache = {}
 
         # prepare
-        Q_K_ff_input = self._eval_K_input(x, x, diag)  # [Q,b1] or [Q,b1,b1]
-        Q_K_ff_latent = self._eval_K_latent(H, H, diag)  # [Q,b2] or [Q,b2,b2]
+        Q_K_ff_input = self._eval_K_input(x, x, diag)  
+        Q_K_ff_latent = self._eval_K_latent(H, H, diag)  
         if diag:
             Q_K_ff = torch.einsum('qi,qk->qik', Q_K_ff_latent, Q_K_ff_input)
-            Q_K_ff = Q_K_ff.reshape(-1, Q_K_ff_latent.shape[-1] * Q_K_ff_input.shape[-1])  # [Q, b2*b1]
-            K_ff = Q_K_ff.sum(dim=0)  # [b2*b1]
+            Q_K_ff = Q_K_ff.reshape(-1, Q_K_ff_latent.shape[-1] * Q_K_ff_input.shape[-1])  
+            K_ff = Q_K_ff.sum(dim=0)  
         else:
             Q_K_ff = torch.einsum('qij,qkl->qikjl', Q_K_ff_latent, Q_K_ff_input)
             Q_K_ff = Q_K_ff.reshape(-1, Q_K_ff_latent.shape[-2] * Q_K_ff_input.shape[-2],
-                                    Q_K_ff_latent.shape[-1] * Q_K_ff_input.shape[-1])  # [Q, b2*b1, b2*b1]
-            K_ff = Q_K_ff.sum(dim=0)  # [b2*b1, b2*b1]
+                                    Q_K_ff_latent.shape[-1] * Q_K_ff_input.shape[-1])  
+            K_ff = Q_K_ff.sum(dim=0)  
 
         # test
-        test_Q_K_ff_input = self._eval_K_input(x, x, diag=False)  # [Q,b1] or [Q,b1,b1]
-        test_Q_K_ff_latent = self._eval_K_latent(H, H, diag=False)  # [Q,b2] or [Q,b2,b2]
+        test_Q_K_ff_input = self._eval_K_input(x, x, diag=False)  
+        test_Q_K_ff_latent = self._eval_K_latent(H, H, diag=False)  
         test_sum_kron_products = 0.
         for q in range(self.Q):
             test_sum_kron_products += torch.kron(test_Q_K_ff_latent[q], test_Q_K_ff_input[q])
@@ -201,8 +191,8 @@ class LVMOGP(nn.Module):
         Q_K_fu_latent = self._eval_K_latent(H, self.zH.zH)  # [Q,b2,M_H]
         Q_K_fu = torch.einsum('qij,qkl->qikjl', Q_K_fu_latent, Q_K_fu_input)
         Q_K_fu = Q_K_fu.reshape(-1, Q_K_fu_latent.shape[-2] * Q_K_fu_input.shape[-2],
-                                    Q_K_fu_latent.shape[-1] * Q_K_fu_input.shape[-1])  # [Q, b2*b1, M_H*M_X]
-        K_fu = Q_K_fu.sum(dim=0)  # [b2*b1, M_H*M_X]
+                                    Q_K_fu_latent.shape[-1] * Q_K_fu_input.shape[-1])  
+        K_fu = Q_K_fu.sum(dim=0)  
 
         # test
         test_sum_kron_products = 0.
@@ -219,14 +209,14 @@ class LVMOGP(nn.Module):
         if self.Q == 1:
             L_uu_input = psd_safe_cholesky(Q_K_uu_input.squeeze(0) + self.jitter * torch.eye(Q_K_uu_input.size(-1), device=Q_K_uu_input.device))
             L_uu_latent = psd_safe_cholesky(Q_K_uu_latent.squeeze(0) + self.jitter * torch.eye(Q_K_uu_latent.size(-1), device=Q_K_uu_latent.device))
-            L_uu = torch.kron(L_uu_latent, L_uu_input)  # [M_H*M_X, M_H*M_X]
+            L_uu = torch.kron(L_uu_latent, L_uu_input)  
 
-        # case2: Q>1 TODO: naive, better ways?
+        # case2: Q>1 
         else:
             Q_K_uu = torch.einsum('qij,qkl->qikjl', Q_K_uu_latent, Q_K_uu_input)
             Q_K_uu = Q_K_uu.reshape(-1, Q_K_uu_latent.shape[-2] * Q_K_uu_input.shape[-2],
                                         Q_K_uu_latent.shape[-1] * Q_K_uu_input.shape[-1])
-            K_uu = Q_K_uu.sum(dim=0)  # [M_H*M_X, M_H*M_X]
+            K_uu = Q_K_uu.sum(dim=0)  
 
             # test
             test_sum_kron_products = 0.
@@ -234,21 +224,21 @@ class LVMOGP(nn.Module):
                 test_sum_kron_products += torch.kron(Q_K_uu_latent[q], Q_K_uu_input[q])
             assert torch.allclose(K_uu, test_sum_kron_products)
 
-            L_uu = psd_safe_cholesky(K_uu + self.jitter * torch.eye(K_uu.size(-1), device=K_uu.device))  # [M_H*M_X, M_H*M_X]
+            L_uu = psd_safe_cholesky(K_uu + self.jitter * torch.eye(K_uu.size(-1), device=K_uu.device))  
 
-        L_uu_inv_K_uf = torch.linalg.solve_triangular(L_uu, K_fu.mT, upper=False)  # [M_H*M_X, b2*b1]
+        L_uu_inv_K_uf = torch.linalg.solve_triangular(L_uu, K_fu.mT, upper=False)  
 
-        qf_mean = L_uu_inv_K_uf.mT @ self.qU.mean_qU  # [b2*b1]
+        qf_mean = L_uu_inv_K_uf.mT @ self.qU.mean_qU  
         if diag:
-            tmp = torch.einsum('ji,jk,ki->i', L_uu_inv_K_uf, (self.qU.cov_qU - torch.eye(self.qU.cov_qU.size(-1))), L_uu_inv_K_uf)  # [b2*b1]
+            tmp = torch.einsum('ji,jk,ki->i', L_uu_inv_K_uf, (self.qU.cov_qU - torch.eye(self.qU.cov_qU.size(-1))), L_uu_inv_K_uf)  
 
             # test
             tmp2 = L_uu_inv_K_uf.mT @ (self.qU.cov_qU - torch.eye(self.qU.cov_qU.size(-1))) @ L_uu_inv_K_uf
             assert torch.allclose(tmp, tmp2.diagonal(dim1=-2, dim2=-1), atol=1e-5)
 
-            qf_cov = (K_ff + tmp + self.jitter)  # [b2*b1]
+            qf_cov = (K_ff + tmp + self.jitter)  
         else:
-            qf_cov = K_ff + L_uu_inv_K_uf.mT @ (self.qU.cov_qU - torch.eye(self.qU.cov_qU.size(-1))) @ L_uu_inv_K_uf + self.jitter * torch.eye(K_ff.shape[-1])  # [b2*b1, b2*b1]
+            qf_cov = K_ff + L_uu_inv_K_uf.mT @ (self.qU.cov_qU - torch.eye(self.qU.cov_qU.size(-1))) @ L_uu_inv_K_uf + self.jitter * torch.eye(K_ff.shape[-1])  
 
         cache['L_uu'] = L_uu  # save for next time usage
 
@@ -262,8 +252,8 @@ class LVMOGP(nn.Module):
         M_H, M_X = self.qU.cov_qU_H.size(-1), self.qU.cov_qU_X.size(-1)
 
         # cholesky of variational cov matrices
-        chol_var_cov_H = psd_safe_cholesky(self.qU.cov_qU_H + self.jitter * torch.eye(M_H))  # [M_H, M_H]
-        chol_var_cov_X = psd_safe_cholesky(self.qU.cov_qU_X + self.jitter * torch.eye(M_X))  # [M_X, M_X]
+        chol_var_cov_H = psd_safe_cholesky(self.qU.cov_qU_H + self.jitter * torch.eye(M_H))  
+        chol_var_cov_X = psd_safe_cholesky(self.qU.cov_qU_X + self.jitter * torch.eye(M_X))  
 
         half_trace_H = torch.diagonal(chol_var_cov_H, dim1=-1, dim2=-2).sum()
         half_trace_X = torch.diagonal(chol_var_cov_X, dim1=-1, dim2=-2).sum()
@@ -280,18 +270,18 @@ class LVMOGP(nn.Module):
         mini-batch approximation for KL between q(H) and p(H), both are fully factorized.
         """
         assert self.qH.mean_field
-        mean_pH = self._expand_tensor(self.pH.mean_pH)  # [Q,P,D_h]
-        cov_pH = self._expand_tensor(self.pH.cov_pH)  # [Q,P,D_h]
-        mean_qH = self._expand_tensor(self.qH.mean_qH)  # [Q,P,D_h]
-        cov_qH = self._expand_tensor(self.qH.cov_qH)  # [Q,P,D_h]
+        mean_pH = self._expand_tensor(self.pH.mean_pH)  
+        cov_pH = self._expand_tensor(self.pH.cov_pH)  
+        mean_qH = self._expand_tensor(self.qH.mean_qH)  
+        cov_qH = self._expand_tensor(self.qH.cov_qH)  
 
         if output_idx is not None:
             mean_pH, cov_pH = mean_pH[:, output_idx, :], cov_pH[:, output_idx, :]
             mean_qH, cov_qH = mean_qH[:, output_idx, :], cov_qH[:, output_idx, :]
 
-        term1 = torch.log(cov_pH) - torch.log(cov_qH)  # [Q,p,D_h]
-        term2 = (cov_qH + (mean_qH - mean_pH).pow(2)) / cov_pH  # [Q,p,D_h]
-        KLs = 0.5 * (term1 + term2 - 1.)  # # [Q,p,D_h]
+        term1 = torch.log(cov_pH) - torch.log(cov_qH)  
+        term2 = (cov_qH + (mean_qH - mean_pH).pow(2)) / cov_pH  
+        KLs = 0.5 * (term1 + term2 - 1.)  
 
         return KLs.sum(dim=(-3, -1)).mean()
 
@@ -303,27 +293,27 @@ class LVMOGP(nn.Module):
         m: [b,P], where 0 indicate missing
         output_idx: [P]
         """
-        H = self.qH.sample(output_idx)  # [Q,P,D_h]
-        qf_mean, qf_cov, cache = self.variational_f(x, H, diag=True)  # [P*b], [P*b]
+        H = self.qH.sample(output_idx)  
+        qf_mean, qf_cov, cache = self.variational_f(x, H, diag=True)  
         qf_dist = MultivariateNormal(qf_mean, torch.diag_embed(qf_cov))
 
         # term 1/3 - exp_log_lik
         # TODO: mask before compute
-        y = y.mT.flatten()  # column priority flatten, [P*b]
+        y = y.mT.flatten()  
         m = m.mT.flatten()
-        _exp_log_lik = self.likelihood.expected_log_prob(y, qf_dist)  # [P*b]
+        _exp_log_lik = self.likelihood.expected_log_prob(y, qf_dist)  
         _exp_log_lik = _exp_log_lik[m.bool()]
-        if not _exp_log_lik.tolist():  # i.e. empty list
+        if not _exp_log_lik.tolist():  
             print('Encounter empty log lik!')
             exp_log_lik = 0.
         else:
             exp_log_lik = _exp_log_lik.mean()
 
         # term 2/3 - KL(q(U)||p(U))
-        KL_qU_pU = self.KL_qU_pU()  # scalar
+        KL_qU_pU = self.KL_qU_pU()  
 
         # term 3/3 - KL(q(H)||p(H))
-        KL_qH_pH = self.KL_qH_pH(output_idx)  # scalar
+        KL_qH_pH = self.KL_qH_pH(output_idx)  
 
         elbo = self.N_train * self.num_outputs * exp_log_lik - beta_u * KL_qU_pU - beta_h * self.num_outputs * KL_qH_pH
 
@@ -334,7 +324,6 @@ class LVMOGP(nn.Module):
         """
         x_star: [b1,D_x]
         make predictions for output_idx on x_star. If output_idx is None, then make predictions for all outputs.
-        TODO: avoid for loop!
         """
         if output_idx is None:
             output_idx = torch.arange(self.num_outputs)
@@ -343,7 +332,7 @@ class LVMOGP(nn.Module):
         b1, b2 = x_star.size(-2), len(output_idx)
 
         for i in range(num_samples):
-            H_samples = self.qH.sample(output_idx)  # [Q, b2, D_h]
+            H_samples = self.qH.sample(output_idx)  
             qf_mean, qf_cov, _ = self.variational_f(x_star, H_samples, diag=diag)
             qf_mean = qf_mean.reshape(b2, b1)
             if diag:
@@ -353,16 +342,14 @@ class LVMOGP(nn.Module):
             pred_means.append(qf_mean)
             pred_covs.append(qf_cov)
 
-        pred_means = torch.stack(pred_means, dim=0)  # [s,b2,b1]
-        pred_covs = torch.stack(pred_covs, dim=0)  # [s,b2,b1] or [s,b2,b1,b2,b1]
+        pred_means = torch.stack(pred_means, dim=0)  
+        pred_covs = torch.stack(pred_covs, dim=0)  
 
         return pred_means, pred_covs
 
     def train_lvmogp(self, train_dataloader: DataLoader, output_batch_size: int, optimizer: Optimizer, epochs: int,
                      beta_u=1., beta_h=1., print_epochs=10):
-        """
-        TODO: better way for looping dataset?
-        """
+        
         output_index_dataloader = None  # cache
 
         for epoch in range(epochs):
@@ -422,9 +409,9 @@ class IndexDataset(Dataset):
 class MyDataset(Dataset):
     def __init__(self, X, Y, m, batch_shape=torch.Size([]), data_device='cpu'):
         self.batch_shape = batch_shape
-        self.X = torch.as_tensor(X, dtype=torch.get_default_dtype(), device=data_device)  # [..., n, D_x]
-        self.Y = torch.as_tensor(Y, dtype=torch.get_default_dtype(), device=data_device)  # [..., n, P]
-        self.m = torch.as_tensor(m, dtype=torch.get_default_dtype(), device=data_device)  # [..., n, P]
+        self.X = torch.as_tensor(X, dtype=torch.get_default_dtype(), device=data_device)  
+        self.Y = torch.as_tensor(Y, dtype=torch.get_default_dtype(), device=data_device)  
+        self.m = torch.as_tensor(m, dtype=torch.get_default_dtype(), device=data_device)  
 
     def __len__(self):
         return self.X.shape[-2]
@@ -446,12 +433,12 @@ class synthetic_LVMOGP(LVMOGP):
                  latent_IP_joint=True, input_IP_joint=True):
         # mean_pH: (long, lat) spatial locs
         D_h = mean_pH.shape[-1]
-        cov_pH = pH_cov * torch.ones_like(mean_pH)  # prior covariance
+        cov_pH = pH_cov * torch.ones_like(mean_pH)  
         pH = Prior_H(mean_pH, cov_pH)
         qH = Variational_H(Q, num_outputs, D_h)
         qU = Variational_inducing_dist(M_H, M_X)
-        zH = Inducing_points("zH", Q=Q, num_inducing_points=M_H, num_dim=D_h, IP_joint=latent_IP_joint)  # randn init
-        zX = Inducing_points("zX", Q=Q, num_inducing_points=M_X, num_dim=D_x, IP_joint=input_IP_joint)  # randn init
+        zH = Inducing_points("zH", Q=Q, num_inducing_points=M_H, num_dim=D_h, IP_joint=latent_IP_joint)  
+        zX = Inducing_points("zX", Q=Q, num_inducing_points=M_X, num_dim=D_x, IP_joint=input_IP_joint)  
 
         super(synthetic_LVMOGP, self).__init__(
             input_kernels, latent_kernels, N_train, pH=pH, qH=qH,
@@ -466,7 +453,7 @@ class demo_LVMOGP(LVMOGP):
         num_outputs, D_h = mean_pH.shape[-2:]
         Q, M_H, _ = zH_init.shape[-3:]
         _, M_X, D_x = zX_init.shape[-3:]
-        cov_pH = pH_cov * torch.ones_like(mean_pH)  # prior covariance
+        cov_pH = pH_cov * torch.ones_like(mean_pH)  
         pH = Prior_H(mean_pH, cov_pH)
         qH = Variational_H(Q, num_outputs, D_h)
         qU = Variational_inducing_dist(M_H, M_X)
@@ -502,13 +489,13 @@ if __name__ == '__main__':
 
     N_train = 64
     X_start, X_end = -3, 3
-    train_X = torch.linspace(X_start, X_end, N_train).reshape(-1, 1)  # [n_train, 1]
-    train_Y_noiseless = torch.cat([torch.sin(train_X), torch.cos(train_X)], dim=-1)  # [n_train, 2]
+    train_X = torch.linspace(X_start, X_end, N_train).reshape(-1, 1)  
+    train_Y_noiseless = torch.cat([torch.sin(train_X), torch.cos(train_X)], dim=-1)  
     train_Y = train_Y_noiseless + 0.05 * torch.randn_like(train_Y_noiseless)
 
     with torch.random.fork_rng():
         torch.manual_seed(123)
-        train_m = torch.randint(0, 2, (N_train, 2), dtype=torch.bool)  # [n_train, 2]
+        train_m = torch.randint(0, 2, (N_train, 2), dtype=torch.bool)  
 
     args = {
         "input_kernels": [ScaleKernel(RBFKernel())],
@@ -536,11 +523,11 @@ if __name__ == '__main__':
     n_test = 500
     test_X = torch.linspace(X_start - 1, X_end + 1, n_test).reshape(-1, 1)
 
-    test_pred_means, test_pred_vars = model.predict(x_star=test_X, output_idx=None, num_samples=1, diag=True)  # both [s, num_output, n_test]
+    test_pred_means, test_pred_vars = model.predict(x_star=test_X, output_idx=None, num_samples=1, diag=True)  
 
     plt.figure(figsize=(16, 9))
 
-    plt.subplot(1, 2, 1)  # (rows, columns, index)
+    plt.subplot(1, 2, 1)  
     plt.plot(test_X.squeeze(-1), torch.sin(test_X.squeeze(-1)), color='black', label='sin(x)')
     plt.plot(test_X.squeeze(-1), test_pred_means[0, 0, :], color='blue', label='pred mean')
     plt.scatter(train_X.squeeze(-1)[train_m[:, 0]], train_Y[:, 0][train_m[:, 0]], marker='x', color='red', label='train data', s=10)
@@ -568,36 +555,4 @@ if __name__ == '__main__':
 
     plt.tight_layout()  # Adjust layout to avoid overlap
     plt.savefig('./synthetic_LVMOGP.pdf')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
