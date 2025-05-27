@@ -42,27 +42,26 @@ class GP(nn.Module):
     def posterior(self, test_X: Tensor, diag=True):
         # noiseless f
         # test_X: [n_test, D_x]
-        Kxx = self.kernel(self.train_X).to_dense()  # [n_train, n_train]
+        Kxx = self.kernel(self.train_X).to_dense()  
         noisy_Kxx = Kxx + self.noise_var * torch.eye(Kxx.size(-1))
-        Kxxs = self.kernel(self.train_X, test_X).to_dense()  # [n_train, n_test]
+        Kxxs = self.kernel(self.train_X, test_X).to_dense()  
         noisy_Lxx = psd_safe_cholesky(noisy_Kxx + self.jitter * torch.eye(Kxx.shape[-1]))
         noisy_Kxx_inv = torch.cholesky_solve(torch.eye(Kxx.shape[-1], dtype=Kxx.dtype), noisy_Lxx)
 
-        pred_mean = (Kxxs.mT @ noisy_Kxx_inv @ self.train_Y).squeeze(-1)  # [n_test]
+        pred_mean = (Kxxs.mT @ noisy_Kxx_inv @ self.train_Y).squeeze(-1)  
 
         if diag:
-            Kxsxs = self.kernel(test_X, diag=True).to_dense()  # [n_test]
-            pred_cov = torch.einsum('ij,jk,ki->i', Kxxs.mT, noisy_Kxx_inv, Kxxs)  # [n_test]
+            Kxsxs = self.kernel(test_X, diag=True).to_dense()  
+            pred_cov = torch.einsum('ij,jk,ki->i', Kxxs.mT, noisy_Kxx_inv, Kxxs)  
             assert torch.allclose(pred_cov, torch.diagonal(Kxxs.mT @ noisy_Kxx_inv @ Kxxs, dim1=-2, dim2=-1))
             pred_cov = Kxsxs - pred_cov
         else:
             raise NotImplementedError
-            # pred_cov = Kxxs.mT @ noisy_Kxx_inv @ Kxxs  # [n_test, n_test]
 
-        return pred_mean, pred_cov  # [n_test], [n_test] or [n_test, n_test]
+        return pred_mean, pred_cov  
 
     def log_evidence(self):
-        Kxx = self.kernel(self.train_X).to_dense()  # [n_train, n_train]
+        Kxx = self.kernel(self.train_X).to_dense()  
         noisy_Kxx = Kxx + self.noise_var * torch.eye(Kxx.size(-1))
         noisy_Lxx = psd_safe_cholesky(noisy_Kxx + self.jitter * torch.eye(noisy_Kxx.size(-1)))
         dist = torch.distributions.MultivariateNormal(loc=torch.zeros(noisy_Kxx.size(-1)), scale_tril=noisy_Lxx)
@@ -81,7 +80,6 @@ class IndepMOGP(nn.Module):
     """
     def __init__(self, kernel: Kernel, train_X: Tensor, train_Y: Tensor, train_mask: Tensor,
                  noise_var=1.0, fix_noise_var=False, jitter=1e-6):
-        # train_X: [n_train, D_x]; train_Y, train_mask: [n_train, P], 0 indicates missing
         super(IndepMOGP, self).__init__()
         self.train_X = train_X
         self.train_Y = train_Y
@@ -95,12 +93,12 @@ class IndepMOGP(nn.Module):
     def setup_indepGPs(self, kernel: Kernel, noise_var: float, fix_noise_var: bool, jitter=1e-6):
         P = self.train_Y.size(-1)
         for p in range(P):
-            curr_mask = self.train_mask[:, p]  # [n_train]
-            curr_train_X = self.train_X[curr_mask]  # [<=n_train]
+            curr_mask = self.train_mask[:, p]  
+            curr_train_X = self.train_X[curr_mask]  
             if curr_train_X.size(0) < 3:
                 print(f"for output {p}, only {curr_train_X.size(0)} training examples!")
                 raise NotImplementedError
-            curr_train_Y = self.train_Y[:, p][curr_mask].unsqueeze(-1)  # [<=n_train, 1]
+            curr_train_Y = self.train_Y[:, p][curr_mask].unsqueeze(-1)  
             curr_gp = GP(kernel=copy.deepcopy(kernel), noise_var=noise_var, train_X=curr_train_X, train_Y=curr_train_Y,
                          fix_noise_var=fix_noise_var, jitter=jitter)
             self.GP_list.append(curr_gp)
@@ -137,7 +135,7 @@ class IndepMOGP(nn.Module):
             pred_mean.append(curr_pred_mean)
             pred_cov.append(curr_pred_cov)
 
-        pred_mean = torch.stack(pred_mean, dim=-1)  # [n_test, len(output_ids)]
+        pred_mean = torch.stack(pred_mean, dim=-1)  
         pred_cov = torch.stack(pred_cov, dim=-1)
 
         return pred_mean, pred_cov
@@ -156,13 +154,13 @@ if __name__ == "__main__":
     # Synthetic dataset
     N_train = 64
     X_start, X_end = -3, 3
-    train_X = torch.linspace(X_start, X_end, N_train).reshape(-1, 1)  # [n_train, 1]
-    train_Y_noiseless = torch.cat([torch.sin(train_X), torch.cos(train_X)], dim=-1)  # [n_train, 2]
+    train_X = torch.linspace(X_start, X_end, N_train).reshape(-1, 1)  
+    train_Y_noiseless = torch.cat([torch.sin(train_X), torch.cos(train_X)], dim=-1)  
     train_Y = train_Y_noiseless + 0.05 * torch.randn_like(train_Y_noiseless)
 
     with torch.random.fork_rng():
         torch.manual_seed(123)
-        train_m = torch.randint(0, 2, (N_train, 2), dtype=torch.bool)  # [n_train, 2]
+        train_m = torch.randint(0, 2, (N_train, 2), dtype=torch.bool)  
 
     kernel = ScaleKernel(RBFKernel())
     model = IndepMOGP(kernel, train_X, train_Y, train_m, noise_var=0.1, fix_noise_var=False)
@@ -174,7 +172,7 @@ if __name__ == "__main__":
     n_test = 500
     test_X = torch.linspace(X_start - 1, X_end + 1, n_test).reshape(-1, 1)
 
-    pred_mean, pred_cov = model.predict(test_X)  # [n_test, len(output_ids)]
+    pred_mean, pred_cov = model.predict(test_X)  
 
     plt.figure(figsize=(16, 9))
 
@@ -208,24 +206,4 @@ if __name__ == "__main__":
 
     plt.tight_layout()  # Adjust layout to avoid overlap
     plt.savefig('./synthetic_IndepMOGP.pdf')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
