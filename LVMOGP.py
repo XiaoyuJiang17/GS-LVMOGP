@@ -255,13 +255,13 @@ class LVMOGP(nn.Module):
         chol_var_cov_H = psd_safe_cholesky(self.qU.cov_qU_H + self.jitter * torch.eye(M_H))  
         chol_var_cov_X = psd_safe_cholesky(self.qU.cov_qU_X + self.jitter * torch.eye(M_X))  
 
-        half_trace_H = torch.diagonal(chol_var_cov_H, dim1=-1, dim2=-2).sum()
-        half_trace_X = torch.diagonal(chol_var_cov_X, dim1=-1, dim2=-2).sum()
+        trace_H = chol_var_cov_H.square().sum(dim=(-1, -2))
+        trace_X = chol_var_cov_X.square().sum(dim=(-1, -2))
         half_log_det_H = torch.diagonal(chol_var_cov_H, dim1=-1, dim2=-2).log().sum()
         half_log_det_X = torch.diagonal(chol_var_cov_X, dim1=-1, dim2=-2).log().sum()
 
         m_T_m = (self.qU.mean_qU ** 2).sum()
-        KL = 2 * half_trace_H * half_trace_X - 0.5 * (M_H * M_X - m_T_m) - M_H * half_log_det_X - M_X * half_log_det_H
+        KL = 0.5 * trace_H * trace_X - 0.5 * (M_H * M_X - m_T_m) - M_H * half_log_det_X - M_X * half_log_det_H
 
         return KL
 
